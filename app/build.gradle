@@ -10,6 +10,7 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters "armeabi", "armeabi-v7a", "x86", "x86_64", "mips", "mips64" }
     }
 
     repositories {
@@ -36,8 +37,11 @@ dependencies {
 
     //FBB大指纹开发包(新固件开发包)
     //FBB FingerPrint SDK
-    compile(name: 'fp_fbb_sdk_20190620', ext: 'aar')
+    // compile(name: 'fp_fbb_sdk_20190620', ext: 'aar')
 
     //SerialPort SDK,需要串口管理类中的USB管理类
-    compile(name: 'serialport_sdk_20190612', ext: 'aar')
+    //compile(name: 'serialport_sdk_20190612', ext: 'aar')
+    //implementation files('libs\\TrustFinger.jar')
+    implementation files('libs\\serialport_sdk_20190612.aar')
+    implementation files('libs\\fp_fbb_sdk_20190620.aar')
 }
