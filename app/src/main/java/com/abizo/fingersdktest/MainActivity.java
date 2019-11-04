@@ -45,8 +45,13 @@ public class MainActivity extends AppCompatActivity {
     private TrustFingerDevice mTrustFingerDevice = null;
 
     private boolean detected = false;
+    private int enrollCount = 0;
+    private boolean isScanning = false;
+    private boolean isDone = false;
 
     private ImageView imageViewFingerprint;
+    private ImageView imageViewFingerprint2;
+    private ImageView imageViewFingerprint3;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +59,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         imageViewFingerprint = findViewById(R.id.imageViewFingerprint);
+        imageViewFingerprint2 = findViewById(R.id.imageViewFingerprint2);
+        imageViewFingerprint3 = findViewById(R.id.imageViewFingerprint3);
 
         initSDK();
     }
@@ -62,9 +69,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
 
-        if (arePermissonsGranted()) {
-
-        } else {
+        if (!arePermissonsGranted()) {
             requestPermissions();
         }
     }
@@ -88,11 +93,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    ////////////////////////////////////
+    //////////////////////////////////////////////////////////////////
 
     public void captureFingerprint() {
         CaptureTask captureTask = new CaptureTask();
-        captureTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        captureTask.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
     }
 
     public void closeSDK() {
@@ -101,7 +106,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void initSDK() {
-        USBFingerManager.getInstance(this).setDelayMs(5000);
+        USBFingerManager.getInstance(this).setDelayMs(1000);
         USBFingerManager.getInstance(this).openUSB(new USBFingerManager.OnUSBFingerListener() {
             @Override
             public void onOpenUSBFingerSuccess(String s, UsbManager usbManager, UsbDevice usbDevice) {
@@ -114,8 +119,12 @@ public class MainActivity extends AppCompatActivity {
                     public void openSuccess(TrustFingerDevice device) {
                         mTrustFingerDevice = device;
                         Log.d(TAG, "Successful opening");
-
-                        captureFingerprint();
+                        if (!isScanning) {
+                            new CaptureTask().waitForDone();
+                            captureFingerprint();
+                        } else {
+                            Log.e(TAG, "Device is scanning");
+                        }
                     }
 
                     @Override
@@ -154,6 +163,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPreExecute() {
             super.onPreExecute();
+            isScanning = true;
         }
 
         @Override
@@ -186,15 +196,29 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                imageViewFingerprint.setImageBitmap(rawToBitmap);
+                                switch (enrollCount) {
+                                    case 0:
+                                        imageViewFingerprint.setImageBitmap(rawToBitmap);
+                                        break;
+                                    case 1:
+                                        imageViewFingerprint2.setImageBitmap(rawToBitmap);
+                                        break;
+                                    case 2:
+                                        imageViewFingerprint3.setImageBitmap(rawToBitmap);
+                                        break;
+                                    default:
+                                        Log.e(TAG, "Invalid enroll count.");
+
+                                }
                             }
                         });
-
                         detected = true;
                     }
                 }
 
-            } while (detected == false);
+            } while (detected == false && enrollCount < 3);
+
+            isDone = true;
 
             return null;
         }
@@ -203,6 +227,22 @@ public class MainActivity extends AppCompatActivity {
         protected void onPostExecute(Void aVoid) {
             super.onPostExecute(aVoid);
             detected = false;
+            enrollCount++;
+            isScanning = false;
+            Log.d(TAG, "Enroll count: " + enrollCount);
+            if (enrollCount < 3) {
+                new CaptureTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
+            }
+        }
+
+        public void waitForDone() {
+            while (!isDone) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
     }
 }
