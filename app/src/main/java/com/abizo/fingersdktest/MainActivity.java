@@ -6,31 +6,26 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Color;
-import android.hardware.biometrics.BiometricPrompt;
-import android.hardware.fingerprint.FingerprintManager;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.View;
-import android.widget.Button;
 import android.widget.ImageView;
 
-import com.aratek.trustfinger.sdk.DeviceListener;
 import com.aratek.trustfinger.sdk.DeviceOpenListener;
+import com.aratek.trustfinger.sdk.FingerPosition;
 import com.aratek.trustfinger.sdk.LfdLevel;
 import com.aratek.trustfinger.sdk.LfdStatus;
+import com.aratek.trustfinger.sdk.SecurityLevel;
 import com.aratek.trustfinger.sdk.TrustFinger;
 import com.aratek.trustfinger.sdk.TrustFingerDevice;
+import com.aratek.trustfinger.sdk.TrustFingerException;
+import com.aratek.trustfinger.sdk.VerifyResult;
 import com.cw.fpgabsdk.USBFingerManager;
-
-import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
     private String[] permissions = {Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
@@ -40,13 +35,30 @@ public class MainActivity extends AppCompatActivity {
 
     private byte[] rawData;
     private byte[] rawBitmap;
-    private Bitmap rawToBitmap;
+    private byte[] featureData;
+
+    private byte[] rawData1;
+    private byte[] rawBitmap1;
+    private byte[] rawData2;
+    private byte[] rawBitmap2;
+    private byte[] rawData3;
+    private byte[] rawBitmap3;
+    private Bitmap rawToBitmap1;
+    private Bitmap rawToBitmap2;
+    private Bitmap rawToBitmap3;
+
+    private byte[] featureData1;
+    private byte[] featureData2;
+    private byte[] featureData3;
+
+
     int deviceIndex = 0;
     private TrustFingerDevice mTrustFingerDevice = null;
 
     private boolean detected = false;
     private int enrollCount = 0;
     private boolean isScanning = false;
+    private boolean isPressing = false;
     private boolean isDone = false;
 
     private ImageView imageViewFingerprint;
@@ -96,8 +108,10 @@ public class MainActivity extends AppCompatActivity {
     //////////////////////////////////////////////////////////////////
 
     public void captureFingerprint() {
+        Log.d("Avery", "Async");
         CaptureTask captureTask = new CaptureTask();
-        captureTask.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
+        captureTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+
     }
 
     public void closeSDK() {
@@ -119,12 +133,7 @@ public class MainActivity extends AppCompatActivity {
                     public void openSuccess(TrustFingerDevice device) {
                         mTrustFingerDevice = device;
                         Log.d(TAG, "Successful opening");
-                        if (!isScanning) {
-                            new CaptureTask().waitForDone();
-                            captureFingerprint();
-                        } else {
-                            Log.e(TAG, "Device is scanning");
-                        }
+                        captureFingerprint();
                     }
 
                     @Override
@@ -164,11 +173,140 @@ public class MainActivity extends AppCompatActivity {
         protected void onPreExecute() {
             super.onPreExecute();
             isScanning = true;
+            Log.d("Avery", "Pre execute");
         }
 
         @Override
         protected Void doInBackground(Void... voids) {
+            Log.d("Avery", "Doing in background");
             do {
+                Log.d(TAG, "Do");
+                if (mTrustFingerDevice.getLfdLevel() != LfdLevel.OFF) {
+                    Log.d(TAG, "Not off");
+                    Log.d(TAG, "LFD Level: " + mTrustFingerDevice.getLfdLevel());
+                    int[] lfdStatus = new int[1];
+                    rawData = mTrustFingerDevice.captureRawDataLfd(lfdStatus);
+                    if (lfdStatus[0] == LfdStatus.FAKE) {
+                        Log.e(TAG, "Fake finger");
+                    } else if (lfdStatus[0] == LfdStatus.UNKNOWN) {
+                        Log.e(TAG, "Unknown finger.");
+                    }
+                    detected = true;
+                } else {
+                    Log.d(TAG, "Off");
+                    rawData = mTrustFingerDevice.captureRawData(); //Getting the raw fingerprint data (as byte array)
+                    if (rawData == null) {
+                        //released
+                        Log.d(TAG, "Finger is released.");
+                        if (rawData1 != null && rawData2 != null && rawData3 != null) {
+                            enrollCount = 3;
+                            if (ifFingersMatch(featureData1, featureData2, featureData3)) {
+                                Log.d(TAG, "Fingerprints match!");
+                            } else {
+                                Log.e(TAG, "Fingerprints do not match!");
+                            }
+                            break;
+                        } else {
+                            if (rawData1 != null && rawData2 != null) {
+                                enrollCount = 2;
+                            } else if (rawData1 != null) {
+                                enrollCount = 1;
+                            } else {
+                                enrollCount = 0;
+                            }
+                        }
+
+                        Log.d(TAG, "Count: " + enrollCount);
+                    } else {
+                        //pressed
+                        Log.d(TAG, "Finger is pressed");
+
+                        try {
+                            featureData = mTrustFingerDevice.extractFeature(FingerPosition.RightIndexFinger);
+                            if (featureData != null) {
+                                Log.d(TAG, "Feature data is not null");
+                            } else {
+                                Log.e(TAG, "Feature data is null");
+                            }
+
+                        } catch (TrustFingerException e) {
+                            Log.e(TAG, "Trust Finger Exception: " + e.getType());
+                            Log.e(TAG, "Error: " + e.getMessage());
+                        }
+
+                        rawBitmap = mTrustFingerDevice.rawToBmp(rawData,
+                                mTrustFingerDevice.getImageInfo().getWidth(),
+                                mTrustFingerDevice.getImageInfo().getHeight(),
+                                mTrustFingerDevice.getImageInfo().getResolution() //Converting byte array into bitmap byte array, later to be converted into a bitmap
+                        );
+                        rawToBitmap1 = BitmapFactory.decodeByteArray(rawBitmap, 0, rawBitmap.length); //Converting into bitmap
+                        //Loading the bitmap into the imageview
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Log.d(TAG, "Switch Count: " + enrollCount);
+                                switch (enrollCount) {
+                                    case 0:
+                                        imageViewFingerprint.setImageBitmap(rawToBitmap1);
+                                        rawData1 = rawData;
+                                        featureData1 = featureData;
+                                        break;
+                                    case 1:
+                                        imageViewFingerprint3.setImageBitmap(rawToBitmap1);
+                                        rawData2 = rawData;
+                                        featureData2 = featureData;
+                                        break;
+                                    case 2:
+                                        imageViewFingerprint2.setImageBitmap(rawToBitmap1);
+                                        rawData3 = rawData;
+                                        featureData3 = featureData;
+                                        break;
+                                    default:
+                                        Log.e(TAG, "Invalid enroll count: " + enrollCount);
+                                        break;
+                                }
+                            }
+                        });
+
+
+                    }
+                }
+
+            } while (!detected);
+
+            isDone = true;
+
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(Void aVoid) {
+            super.onPostExecute(aVoid);
+            detected = false;
+            isScanning = false;
+            rawData = null;
+            rawBitmap = null;
+            //new CaptureTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
+        }
+
+        public boolean ifFingersMatch(byte[] f1, byte[] f2, byte[] f3) {
+            try {
+                VerifyResult verifyResult1 = mTrustFingerDevice.verify(SecurityLevel.Level1, f1, f2);
+                VerifyResult verifyResult2 = mTrustFingerDevice.verify(SecurityLevel.Level1, f1, f3);
+                VerifyResult verifyResult3 = mTrustFingerDevice.verify(SecurityLevel.Level1, f2, f3);
+
+                return verifyResult1.isMatched && verifyResult2.isMatched && verifyResult3.isMatched;
+            } catch (Exception e) {
+                Log.e(TAG, "Error on verify: " + e.getMessage());
+                return false;
+            }
+
+
+        }
+    }
+
+    /*
+    do {
                 Log.d(TAG, "Do");
                 if (mTrustFingerDevice.getLfdLevel() != LfdLevel.OFF) {
                     Log.d(TAG, "LFD Level: " + mTrustFingerDevice.getLfdLevel());
@@ -183,6 +321,7 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     rawData = mTrustFingerDevice.captureRawData();
                     if (rawData != null) {
+
                         Log.d(TAG, "Image quality: " + mTrustFingerDevice.rawDataQuality(rawData));
                         rawBitmap = mTrustFingerDevice.rawToBmp(
                                 rawData,
@@ -191,20 +330,26 @@ public class MainActivity extends AppCompatActivity {
                                 mTrustFingerDevice.getImageInfo().getResolution()
                         );
 
-                        rawToBitmap = BitmapFactory.decodeByteArray(rawBitmap, 0, rawBitmap.length);
-                        //imageViewFingerprint.setImageBitmap(rawToBitmap);
+                        rawToBitmap1 = BitmapFactory.decodeByteArray(rawBitmap, 0, rawBitmap.length);
+                        //imageViewFingerprint.setImageBitmap(rawToBitmap1);
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
                                 switch (enrollCount) {
                                     case 0:
-                                        imageViewFingerprint.setImageBitmap(rawToBitmap);
+                                        imageViewFingerprint.setImageBitmap(rawToBitmap1);
+                                        detected = false;
+                                        enrollCount++;
                                         break;
                                     case 1:
-                                        imageViewFingerprint2.setImageBitmap(rawToBitmap);
+                                        imageViewFingerprint2.setImageBitmap(rawToBitmap1);
+                                        detected = false;
+                                        enrollCount++;
                                         break;
                                     case 2:
-                                        imageViewFingerprint3.setImageBitmap(rawToBitmap);
+                                        imageViewFingerprint3.setImageBitmap(rawToBitmap1);
+                                        detected = true;
+                                        enrollCount++;
                                         break;
                                     default:
                                         Log.e(TAG, "Invalid enroll count.");
@@ -212,37 +357,14 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                         });
-                        detected = true;
+                        //break;
                     }
                 }
 
-            } while (detected == false && enrollCount < 3);
+            } while (!detected);
 
             isDone = true;
 
             return null;
-        }
-
-        @Override
-        protected void onPostExecute(Void aVoid) {
-            super.onPostExecute(aVoid);
-            detected = false;
-            enrollCount++;
-            isScanning = false;
-            Log.d(TAG, "Enroll count: " + enrollCount);
-            if (enrollCount < 3) {
-                new CaptureTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
-            }
-        }
-
-        public void waitForDone() {
-            while (!isDone) {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
-    }
+     */
 }
